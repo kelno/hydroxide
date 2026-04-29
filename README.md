@@ -104,7 +104,11 @@ For now, it only supports unencrypted local connections.
 hydroxide imap
 ```
 
-## Building Docker image
+## Running with Docker
+
+https://hub.docker.com/repository/docker/actuallycoding/hydroxide
+
+### Building the Docker image
 
 Example: 
 ```sh
