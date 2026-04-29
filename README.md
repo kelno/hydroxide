@@ -1,5 +1,10 @@
 # hydroxide
 
+Fork of https://github.com/emersion/hydroxide, with those pull requests merged:
+- [protonmail: implement attachment signature support](https://github.com/emersion/hydroxide/pull/323)
+- [Fix sender not being saved in draft with imap](https://github.com/emersion/hydroxide/pull/324)
+- [carddav: fix contact encryption key selection (user key vs address key)](https://github.com/emersion/hydroxide/pull/327)
+
 A third-party, open-source ProtonMail bridge. For power users only, designed to
 run on a server.
 
@@ -97,6 +102,15 @@ For now, it only supports unencrypted local connections.
 
 ```shell
 hydroxide imap
+```
+
+## Building Docker image
+
+Example: 
+```sh
+podman build -t docker.io/<user>/hydroxide .
+podman login docker.io
+podman push docker.io/<user>/hydroxide
 ```
 
 ## License
