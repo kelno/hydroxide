@@ -1,9 +1,11 @@
 # hydroxide
 
-Fork of https://github.com/emersion/hydroxide, with those pull requests merged:
+Fork of https://hub.docker.com/r/heywoodlh/hydroxide, with docker support and those pull requests merged:
 
 - [protonmail: implement attachment signature support](https://github.com/emersion/hydroxide/pull/323)
 - [carddav: fix contact encryption key selection (user key vs address key)](https://github.com/emersion/hydroxide/pull/327)
+
+---
 
 [![Casual Maintenance Intended](https://casuallymaintained.tech/badge.svg)](https://casuallymaintained.tech/)
 
@@ -106,20 +108,6 @@ For now, it only supports unencrypted local connections.
 hydroxide imap
 ```
 
-## Running with Docker
-
-https://hub.docker.com/repository/docker/actuallycoding/hydroxide
-
-### Building the Docker image
-
-Example:
-
-```sh
-podman build -t docker.io/<user>/hydroxide .
-podman login docker.io
-podman push docker.io/<user>/hydroxide
-```
-
 ## Contributing
 
 This project is [casually maintained]: pull requests are welcome, but the
@@ -135,3 +123,19 @@ MIT
 
 [casually maintained]: https://casuallymaintained.tech/
 [CONTRIBUTING.md]: https://github.com/emersion/.github/blob/main/CONTRIBUTING.md
+
+---
+
+## Running with Docker
+
+https://hub.docker.com/repository/docker/actuallycoding/hydroxide
+
+### Building the Docker image
+
+Example:
+
+```sh
+podman build -t docker.io/<user>/hydroxide .
+podman login docker.io
+podman push docker.io/<user>/hydroxide
+```
