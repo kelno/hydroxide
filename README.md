@@ -1,9 +1,11 @@
 # hydroxide
 
 Fork of https://github.com/emersion/hydroxide, with those pull requests merged:
+
 - [protonmail: implement attachment signature support](https://github.com/emersion/hydroxide/pull/323)
-- [Fix sender not being saved in draft with imap](https://github.com/emersion/hydroxide/pull/324)
 - [carddav: fix contact encryption key selection (user key vs address key)](https://github.com/emersion/hydroxide/pull/327)
+
+[![Casual Maintenance Intended](https://casuallymaintained.tech/badge.svg)](https://casuallymaintained.tech/)
 
 A third-party, open-source ProtonMail bridge. For power users only, designed to
 run on a server.
@@ -12,9 +14,9 @@ hydroxide supports CardDAV, IMAP and SMTP.
 
 Rationale:
 
-* No GUI, only a CLI (so it runs in headless environments)
-* Standard-compliant (we don't care about Microsoft Outlook)
-* Fully open-source
+- No GUI, only a CLI (so it runs in headless environments)
+- Standard-compliant (we don't care about Microsoft Outlook)
+- Fully open-source
 
 Feel free to join the IRC channel: #emersion on Libera Chat.
 
@@ -78,11 +80,11 @@ hydroxide smtp
 Once the bridge is started, you can configure your e-mail client with the
 following settings:
 
-* Hostname: `localhost`
-* Port: 1025
-* Security: none
-* Username: your ProtonMail username
-* Password: the bridge password (not your ProtonMail password)
+- Hostname: `localhost`
+- Port: 1025
+- Security: none
+- Username: your ProtonMail username
+- Password: the bridge password (not your ProtonMail password)
 
 ### CardDAV
 
@@ -96,7 +98,7 @@ Tested on GNOME (Evolution) and Android (DAVDroid).
 
 ### IMAP
 
-⚠️  **Warning**: IMAP support is work-in-progress. Here be dragons.
+⚠️ **Warning**: IMAP support is work-in-progress. Here be dragons.
 
 For now, it only supports unencrypted local connections.
 
@@ -110,13 +112,26 @@ https://hub.docker.com/repository/docker/actuallycoding/hydroxide
 
 ### Building the Docker image
 
-Example: 
+Example:
+
 ```sh
 podman build -t docker.io/<user>/hydroxide .
 podman login docker.io
 podman push docker.io/<user>/hydroxide
 ```
 
+## Contributing
+
+This project is [casually maintained]: pull requests are welcome, but the
+maintainer is busy with lots of other things and will be slow to respond.
+
+Also see [CONTRIBUTING.md].
+
+> > > > > > > original/master
+
 ## License
 
 MIT
+
+[casually maintained]: https://casuallymaintained.tech/
+[CONTRIBUTING.md]: https://github.com/emersion/.github/blob/main/CONTRIBUTING.md
