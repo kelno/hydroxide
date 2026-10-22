@@ -115,8 +115,6 @@ maintainer is busy with lots of other things and will be slow to respond.
 
 Also see [CONTRIBUTING.md].
 
-> > > > > > > original/master
-
 ## License
 
 MIT
@@ -128,14 +126,13 @@ MIT
 
 ## Running with Docker
 
-https://hub.docker.com/repository/docker/actuallycoding/hydroxide
+Image: `ghcr.io/kelno/hydroxide:latest`
 
-### Building the Docker image
+GitHub Actions (`.github/workflows/container-image.yml`) builds and publishes the
+image on every push to `master` and on `v*` tags.
 
-Example:
+### Building the Docker image locally
 
 ```sh
-podman build -t docker.io/<user>/hydroxide .
-podman login docker.io
-podman push docker.io/<user>/hydroxide
+podman build --build-arg COMMIT=$(git rev-parse HEAD) -t hydroxide .
 ```

@@ -1,12 +1,18 @@
 FROM golang:latest AS build
 
-RUN git clone https://github.com/kelno/hydroxide /opt/hydroxide
+ARG COMMIT=unknown
 
 WORKDIR /opt/hydroxide
-RUN git rev-parse HEAD | tee COMMIT \
-	&& GO111MODULE=on go build ./cmd/hydroxide
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN echo "$COMMIT" | tee COMMIT \
+	&& CGO_ENABLED=0 go build ./cmd/hydroxide
 
 FROM debian:trixie-slim
+
+ARG VERSION=dev
+LABEL org.opencontainers.image.version="$VERSION"
 
 RUN apt-get update && apt-get install -y ca-certificates \
 	&& rm -rf /var/lib/apt/lists/*
