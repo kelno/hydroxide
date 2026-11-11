@@ -2,6 +2,7 @@ package imap
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/emersion/go-imap"
 	imapbackend "github.com/emersion/go-imap/backend"
+	"github.com/emersion/go-message/mail"
 
 	"github.com/emersion/hydroxide/imap/database"
 	"github.com/emersion/hydroxide/protonmail"
@@ -442,8 +444,12 @@ func (mbox *mailbox) CreateMessage(flags []string, date time.Time, body imap.Lit
 		}
 	}()
 
+	if mbox.label == protonmail.LabelSent {
+		return mbox.acknowledgeSentCopy(body)
+	}
+
 	if mbox.label != protonmail.LabelDraft {
-		return errors.New("cannot create messages outside the Drafts mailbox")
+		return errors.New("cannot create messages outside the Drafts and Sent mailboxes")
 	}
 
 	if err := mbox.init(); err != nil {
@@ -455,6 +461,44 @@ func (mbox *mailbox) CreateMessage(flags []string, date time.Time, body imap.Lit
 		return err
 	}
 
+	return mbox.Poll()
+}
+
+// acknowledgeSentCopy handles a client saving a copy of a sent message in the
+// Sent mailbox. Messages sent through hydroxide's SMTP server are already in
+// Proton's Sent folder, with the Message-Id stored as their ExternalID, so the
+// copy is accepted without creating a duplicate. A message that Proton doesn't
+// know as sent is refused, rather than silently dropped.
+func (mbox *mailbox) acknowledgeSentCopy(body imap.Literal) error {
+	mr, err := mail.CreateReader(body)
+	if err != nil {
+		return err
+	}
+	defer mr.Close()
+
+	msgID, err := mr.Header.MessageID()
+	if err != nil {
+		return fmt.Errorf("cannot parse Message-Id: %v", err)
+	}
+	if msgID == "" {
+		return errors.New("cannot match message without Message-Id to a sent message")
+	}
+
+	total, _, err := mbox.u.c.ListMessages(&protonmail.MessageFilter{
+		Label:      protonmail.LabelSent,
+		ExternalID: msgID,
+		Limit:      1,
+	})
+	if err != nil {
+		return err
+	}
+	if total == 0 {
+		return fmt.Errorf("no message with Message-Id <%s> in Proton's Sent folder", msgID)
+	}
+
+	if err := mbox.init(); err != nil {
+		return err
+	}
 	return mbox.Poll()
 }
 
