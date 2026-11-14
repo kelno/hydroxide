@@ -1,6 +1,6 @@
 # hydroxide (kelno's fork)
 
-This fork is an AI-managed repo: its owner, kelno, has their own AI agents maintain it for kelno's personal setup, under rules kept in kelno's private agent setup. Those rules don't apply to anyone else's agents.
+This fork is AI-managed by its owner, kelno, under kelno's own rules, which don't apply to anyone else's agents.
 
 Upstream is https://codeberg.org/emersion/hydroxide (remote `upstream`); the GitHub repo this fork was created from is archived.
 
