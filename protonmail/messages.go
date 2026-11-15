@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -308,6 +310,39 @@ func (c *Client) UpdateDraftMessage(msg *Message) (*Message, error) {
 	return respData.Message, nil
 }
 
+// doMessagesBatch sends a request acting on several messages. Proton answers
+// it with one response per message, and can refuse some messages while the
+// request as a whole succeeds: those refusals are returned as an error.
+func (c *Client) doMessagesBatch(req *http.Request) error {
+	var respData struct {
+		resp
+		Responses []struct {
+			ID       string
+			Response resp
+		}
+	}
+	if err := c.doJSON(req, &respData); err != nil {
+		return err
+	}
+
+	var failed []string
+	var firstErr error
+	for _, r := range respData.Responses {
+		if err := r.Response.Err(); err != nil {
+			failed = append(failed, r.ID)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	if len(failed) > 0 {
+		err := fmt.Errorf("%v %v: refused for %v of %v messages (%v), first error: %v", req.Method, req.URL.Path, len(failed), len(respData.Responses), strings.Join(failed, ", "), firstErr)
+		log.Print(err)
+		return err
+	}
+	return nil
+}
+
 func (c *Client) doMessages(action string, ids []string) error {
 	reqData := struct {
 		IDs []string
@@ -317,8 +352,7 @@ func (c *Client) doMessages(action string, ids []string) error {
 		return err
 	}
 
-	// TODO: the response contains one response per message
-	return c.doJSON(req, nil)
+	return c.doMessagesBatch(req)
 }
 
 func (c *Client) MarkMessagesRead(ids []string) error {
@@ -347,8 +381,7 @@ func (c *Client) LabelMessages(labelID string, ids []string) error {
 		return err
 	}
 
-	// TODO: the response contains one response per message
-	return c.doJSON(req, nil)
+	return c.doMessagesBatch(req)
 }
 
 func (c *Client) UnlabelMessages(labelID string, ids []string) error {
@@ -361,8 +394,7 @@ func (c *Client) UnlabelMessages(labelID string, ids []string) error {
 		return err
 	}
 
-	// TODO: the response contains one response per message
-	return c.doJSON(req, nil)
+	return c.doMessagesBatch(req)
 }
 
 type MessageKeyPacket struct {

@@ -674,13 +674,17 @@ func (mbox *mailbox) expunge(apiIDs []string) error {
 	var err error
 	switch mbox.label {
 	case protonmail.LabelTrash:
+		log.Printf("Expunging %v messages from %v: deleting them for good", len(apiIDs), mbox.name)
 		err = mbox.u.c.DeleteMessages(apiIDs)
 	case protonmail.LabelStarred:
+		log.Printf("Expunging %v messages from %v: removing the label", len(apiIDs), mbox.name)
 		err = mbox.u.c.UnlabelMessages(mbox.label, apiIDs)
 	default:
+		log.Printf("Expunging %v messages from %v: moving them to Trash", len(apiIDs), mbox.name)
 		err = mbox.u.c.LabelMessages(protonmail.LabelTrash, apiIDs)
 	}
 	if err != nil {
+		log.Printf("Cannot expunge messages from %v: %v", mbox.name, err)
 		return err
 	}
 

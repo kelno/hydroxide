@@ -10,6 +10,7 @@ Its own changes:
 - IMAP: a client can save its copy of a sent message in Sent; the copy is accepted when Proton already has that message in Sent, without creating a duplicate.
 - IMAP: messages keep their UID when a client reconnects or hydroxide restarts (upstream renumbers each mailbox on every new login, with UIDVALIDITY always 1), and each mailbox gets its own UIDVALIDITY. The `\Deleted` flag is kept in the local database until the mailbox is expunged, rather than in memory. EXPUNGE moves messages to Trash; it deletes them for good only in Trash, and removes the label in Starred (upstream deletes them for good everywhere).
 - IMAP: the UIDPLUS extension's UID EXPUNGE (RFC 4315), so a client can expunge just the messages it flagged, and a move to another server or a local folder completes at once. The APPENDUID and COPYUID response codes are not sent.
+- Proton API: when a request acting on several messages (read, delete, label…) is refused for some of them, that is logged and returned as an error rather than ignored; EXPUNGE logs what it does.
 
 ---
 
