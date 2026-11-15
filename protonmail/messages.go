@@ -198,7 +198,33 @@ func (c *Client) ListMessages(filter *MessageFilter) (total int, messages []*Mes
 		v.Set("ExternalID", filter.ExternalID)
 	}
 
-	req, err := c.newRequest(http.MethodGet, "/messages?"+v.Encode(), nil)
+	// Listing a folder (what IMAP mailbox syncs do) goes to Proton's current
+	// address: the older one can keep listing messages that have left the
+	// folder. Other searches stay on the older address, whose filters are
+	// known to work.
+	if filter.Label != "" && filter.ExternalID == "" && filter.Conversation == "" {
+		v4 := url.Values{}
+		for k, vals := range v {
+			v4[k] = vals
+		}
+		v4.Set("LabelID", filter.Label)
+
+		total, messages, err := c.listMessages("/mail/v4/messages?" + v4.Encode())
+		if err == nil {
+			offset := filter.Page * filter.PageSize
+			err = checkMessageList(total, offset, messages)
+		}
+		if err == nil {
+			return total, messages, nil
+		}
+		log.Printf("cannot list messages with the /mail/v4 address, using the older one: %v", err)
+	}
+
+	return c.listMessages("/messages?" + v.Encode())
+}
+
+func (c *Client) listMessages(path string) (total int, messages []*Message, err error) {
+	req, err := c.newRequest(http.MethodGet, path, nil)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -215,6 +241,21 @@ func (c *Client) ListMessages(filter *MessageFilter) (total int, messages []*Mes
 	return respData.Total, respData.Messages, nil
 }
 
+// checkMessageList checks that a page of a message list looks like what
+// hydroxide expects, so that an answer in another format is not taken for
+// an empty folder.
+func checkMessageList(total, offset int, messages []*Message) error {
+	if len(messages) == 0 && offset < total {
+		return fmt.Errorf("no messages in a page that should have some (total %v, offset %v)", total, offset)
+	}
+	for _, msg := range messages {
+		if msg == nil || msg.ID == "" || len(msg.LabelIDs) == 0 {
+			return errors.New("a listed message has no ID or no labels")
+		}
+	}
+	return nil
+}
+
 type MessageCount struct {
 	LabelID string
 	Total   int
@@ -226,7 +267,19 @@ func (c *Client) CountMessages(address string) ([]*MessageCount, error) {
 	if address != "" {
 		v.Set("Address", address)
 	}
-	req, err := c.newRequest(http.MethodGet, "/messages/count?"+v.Encode(), nil)
+	counts, err := c.countMessages("/mail/v4/messages/count?" + v.Encode())
+	if err == nil && len(counts) == 0 {
+		err = errors.New("no counts in the answer")
+	}
+	if err == nil {
+		return counts, nil
+	}
+	log.Printf("cannot count messages with the /mail/v4 address, using the older one: %v", err)
+	return c.countMessages("/messages/count?" + v.Encode())
+}
+
+func (c *Client) countMessages(path string) ([]*MessageCount, error) {
+	req, err := c.newRequest(http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
 	}
