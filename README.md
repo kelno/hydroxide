@@ -5,6 +5,11 @@ Fork of https://hub.docker.com/r/heywoodlh/hydroxide, with docker support and th
 - [protonmail: implement attachment signature support](https://github.com/emersion/hydroxide/pull/323)
 - [carddav: fix contact encryption key selection (user key vs address key)](https://github.com/emersion/hydroxide/pull/327)
 
+Its own changes:
+
+- IMAP: a client can save its copy of a sent message in Sent; the copy is accepted when Proton already has that message in Sent, without creating a duplicate.
+- IMAP: messages keep their UID when a client reconnects or hydroxide restarts (upstream renumbers each mailbox on every new login, with UIDVALIDITY always 1), and each mailbox gets its own UIDVALIDITY. The `\Deleted` flag is kept in the local database until the mailbox is expunged, rather than in memory. EXPUNGE moves messages to Trash; it deletes them for good only in Trash, and removes the label in Starred (upstream deletes them for good everywhere).
+
 ---
 
 [![Casual Maintenance Intended](https://casuallymaintained.tech/badge.svg)](https://casuallymaintained.tech/)

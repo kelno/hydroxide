@@ -3,6 +3,7 @@ package database
 import (
 	"encoding/json"
 	"errors"
+	"time"
 
 	bolt "go.etcd.io/bbolt"
 
@@ -13,8 +14,10 @@ import (
 var ErrNotFound = errors.New("message not found in local database")
 
 var (
-	mailboxesBucket = []byte("mailboxes")
-	messagesBucket  = []byte("messages")
+	mailboxesBucket   = []byte("mailboxes")
+	messagesBucket    = []byte("messages")
+	uidValidityBucket = []byte("uidvalidity")
+	deletedBucket     = []byte("deleted")
 )
 
 func userMessage(b *bolt.Bucket, apiID string) (*protonmail.Message, error) {
@@ -63,8 +66,24 @@ func (u *User) Mailbox(labelID string) (*Mailbox, error) {
 		if err != nil {
 			return err
 		}
-		_, err = b.CreateBucketIfNotExists([]byte(labelID))
-		return err
+		if _, err := b.CreateBucketIfNotExists([]byte(labelID)); err != nil {
+			return err
+		}
+
+		// A mailbox without a UIDVALIDITY is new, or comes from a database
+		// written before UIDs were kept stable: either way, clients must drop
+		// whatever UIDs they cached for it.
+		v, err := tx.CreateBucketIfNotExists(uidValidityBucket)
+		if err != nil {
+			return err
+		}
+		if v.Get([]byte(labelID)) == nil {
+			uidValidity := uint32(time.Now().Unix())
+			if err := v.Put([]byte(labelID), serializeUID(uidValidity)); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err

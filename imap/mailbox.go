@@ -30,7 +30,6 @@ type mailbox struct {
 
 	initialized   bool
 	total, unread int
-	deleted       map[string]struct{}
 }
 
 func newMailbox(name string, label string, attrs []string, u *user) (*mailbox, error) {
@@ -40,12 +39,11 @@ func newMailbox(name string, label string, attrs []string, u *user) (*mailbox, e
 	}
 
 	return &mailbox{
-		name:    name,
-		label:   label,
-		attrs:   attrs,
-		u:       u,
-		db:      mboxDB,
-		deleted: make(map[string]struct{}),
+		name:  name,
+		label: label,
+		attrs: attrs,
+		u:     u,
+		db:    mboxDB,
 	}, nil
 }
 
@@ -90,7 +88,11 @@ func (mbox *mailbox) Status(items []imap.StatusItem) (*imap.MailboxStatus, error
 			}
 			status.UidNext = uidNext
 		case imap.StatusUidValidity:
-			status.UidValidity = 1
+			uidValidity, err := mbox.db.UidValidity()
+			if err != nil {
+				return nil, err
+			}
+			status.UidValidity = uidValidity
 		case imap.StatusRecent:
 			status.Recent = 0
 		case imap.StatusUnseen:
@@ -112,10 +114,9 @@ func (mbox *mailbox) Check() error {
 func (mbox *mailbox) sync() error {
 	log.Printf("Synchronizing mailbox %v...", mbox.name)
 
-	// TODO: don't do this without incrementing UIDVALIDITY
-	if err := mbox.db.Reset(); err != nil {
-		return err
-	}
+	// Messages already in the local database keep their UID, so that clients
+	// can keep trusting the UIDs they cached; only new messages get one.
+	seen := make(map[string]struct{})
 
 	filter := &protonmail.MessageFilter{
 		PageSize: 150,
@@ -141,8 +142,15 @@ func (mbox *mailbox) sync() error {
 		if err := mbox.db.Sync(page); err != nil {
 			return err
 		}
+		for _, msg := range page {
+			seen[msg.ID] = struct{}{}
+		}
 
 		filter.Page++
+	}
+
+	if err := mbox.db.RemoveExcept(seen); err != nil {
+		return err
 	}
 
 	log.Printf("Synchronizing mailbox %v: done.", mbox.name)
@@ -157,7 +165,6 @@ func (mbox *mailbox) init() error {
 		return nil
 	}
 
-	// TODO: sync only the first time
 	if err := mbox.sync(); err != nil {
 		return err
 	}
@@ -170,8 +177,9 @@ func (mbox *mailbox) reset() error {
 	mbox.Lock()
 	defer mbox.Unlock()
 
+	// The next access synchronizes the mailbox again. Its UIDs are kept.
 	mbox.initialized = false
-	return mbox.db.Reset()
+	return nil
 }
 
 func (mbox *mailbox) fetchFlags(msg *protonmail.Message) []string {
@@ -183,11 +191,11 @@ func (mbox *mailbox) fetchFlags(msg *protonmail.Message) []string {
 		flags = append(flags, imap.AnsweredFlag)
 	}
 
-	mbox.Lock()
-	if _, ok := mbox.deleted[msg.ID]; ok {
+	if deleted, err := mbox.db.IsDeleted(msg.ID); err != nil {
+		log.Printf("cannot read the \\Deleted flag of message %s: %v", msg.ID, err)
+	} else if deleted {
 		flags = append(flags, imap.DeletedFlag)
 	}
-	mbox.Unlock()
 
 	mbox.u.Lock()
 	for _, label := range msg.LabelIDs {
@@ -544,18 +552,7 @@ func (mbox *mailbox) UpdateMessagesFlags(uid bool, seqSet *imap.SeqSet, op imap.
 			}
 		case imap.DeletedFlag:
 			// TODO: send updates
-			mbox.Lock()
-			switch op {
-			case imap.SetFlags, imap.AddFlags:
-				for _, apiID := range apiIDs {
-					mbox.deleted[apiID] = struct{}{}
-				}
-			case imap.RemoveFlags:
-				for _, apiID := range apiIDs {
-					delete(mbox.deleted, apiID)
-				}
-			}
-			mbox.Unlock()
+			err = mbox.db.MarkDeleted(apiIDs, op != imap.RemoveFlags)
 		case imap.DraftFlag:
 			// No-op
 		default:
@@ -624,25 +621,36 @@ func (mbox *mailbox) MoveMessages(uid bool, seqSet *imap.SeqSet, destName string
 	return mbox.Poll()
 }
 
+// Expunge removes the messages flagged \Deleted from the mailbox. In Trash
+// they are deleted for good; in Starred, which is a label in Proton, they
+// lose that label; anywhere else they are moved to Trash, where they can
+// still be recovered.
 func (mbox *mailbox) Expunge() error {
 	if err := mbox.init(); err != nil {
 		return err
 	}
 
-	mbox.Lock()
-	if len(mbox.deleted) == 0 {
-		mbox.Unlock()
+	apiIDs, err := mbox.db.Deleted()
+	if err != nil {
+		return err
+	}
+	if len(apiIDs) == 0 {
 		return nil // Nothing to do
 	}
 
-	apiIDs := make([]string, 0, len(mbox.deleted))
-
-	for apiID := range mbox.deleted {
-		apiIDs = append(apiIDs, apiID)
+	switch mbox.label {
+	case protonmail.LabelTrash:
+		err = mbox.u.c.DeleteMessages(apiIDs)
+	case protonmail.LabelStarred:
+		err = mbox.u.c.UnlabelMessages(mbox.label, apiIDs)
+	default:
+		err = mbox.u.c.LabelMessages(protonmail.LabelTrash, apiIDs)
 	}
-	mbox.Unlock()
+	if err != nil {
+		return err
+	}
 
-	if err := mbox.u.c.DeleteMessages(apiIDs); err != nil {
+	if err := mbox.db.MarkDeleted(apiIDs, false); err != nil {
 		return err
 	}
 
