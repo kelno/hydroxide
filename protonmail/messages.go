@@ -310,9 +310,14 @@ func (c *Client) UpdateDraftMessage(msg *Message) (*Message, error) {
 	return respData.Message, nil
 }
 
+// codeMessageDoesNotExist is Proton's answer for a message it doesn't have,
+// even though it may still list it in a folder.
+const codeMessageDoesNotExist = 2501
+
 // doMessagesBatch sends a request acting on several messages. Proton answers
 // it with one response per message, and can refuse some messages while the
-// request as a whole succeeds: those refusals are returned as an error.
+// request as a whole succeeds: those refusals are returned as an error,
+// except for messages Proton says don't exist, which are only logged.
 func (c *Client) doMessagesBatch(req *http.Request) error {
 	var respData struct {
 		resp
@@ -325,15 +330,24 @@ func (c *Client) doMessagesBatch(req *http.Request) error {
 		return err
 	}
 
-	var failed []string
+	var failed, missing []string
 	var firstErr error
 	for _, r := range respData.Responses {
 		if err := r.Response.Err(); err != nil {
+			if r.Response.Code == codeMessageDoesNotExist {
+				// Nothing left to act on: not worth failing the request,
+				// which would leave a client retrying it forever.
+				missing = append(missing, r.ID)
+				continue
+			}
 			failed = append(failed, r.ID)
 			if firstErr == nil {
 				firstErr = err
 			}
 		}
+	}
+	if len(missing) > 0 {
+		log.Printf("%v %v: skipped %v of %v messages that Proton says don't exist: %v", req.Method, req.URL.Path, len(missing), len(respData.Responses), strings.Join(missing, ", "))
 	}
 	if len(failed) > 0 {
 		err := fmt.Errorf("%v %v: refused for %v of %v messages (%v), first error: %v", req.Method, req.URL.Path, len(failed), len(respData.Responses), strings.Join(failed, ", "), firstErr)
