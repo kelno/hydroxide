@@ -634,10 +634,44 @@ func (mbox *mailbox) Expunge() error {
 	if err != nil {
 		return err
 	}
+	return mbox.expunge(apiIDs)
+}
+
+// UidExpunge expunges the messages flagged \Deleted among those whose UID is
+// in seqSet (UID EXPUNGE, from the UIDPLUS extension).
+func (mbox *mailbox) UidExpunge(seqSet *imap.SeqSet) error {
+	if err := mbox.init(); err != nil {
+		return err
+	}
+
+	deleted, err := mbox.db.Deleted()
+	if err != nil {
+		return err
+	}
+	inSet, err := mbox.fromSeqSet(true, seqSet)
+	if err != nil {
+		return err
+	}
+	wanted := make(map[string]struct{}, len(inSet))
+	for _, apiID := range inSet {
+		wanted[apiID] = struct{}{}
+	}
+
+	var apiIDs []string
+	for _, apiID := range deleted {
+		if _, ok := wanted[apiID]; ok {
+			apiIDs = append(apiIDs, apiID)
+		}
+	}
+	return mbox.expunge(apiIDs)
+}
+
+func (mbox *mailbox) expunge(apiIDs []string) error {
 	if len(apiIDs) == 0 {
 		return nil // Nothing to do
 	}
 
+	var err error
 	switch mbox.label {
 	case protonmail.LabelTrash:
 		err = mbox.u.c.DeleteMessages(apiIDs)
