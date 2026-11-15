@@ -347,7 +347,7 @@ func (c *Client) doMessages(action string, ids []string) error {
 	reqData := struct {
 		IDs []string
 	}{ids}
-	req, err := c.newJSONRequest(http.MethodPut, "/messages/"+action, &reqData)
+	req, err := c.newJSONRequest(http.MethodPut, "/mail/v4/messages/"+action, &reqData)
 	if err != nil {
 		return err
 	}
@@ -376,7 +376,7 @@ func (c *Client) LabelMessages(labelID string, ids []string) error {
 		LabelID string
 		IDs     []string
 	}{labelID, ids}
-	req, err := c.newJSONRequest(http.MethodPut, "/messages/label", &reqData)
+	req, err := c.newJSONRequest(http.MethodPut, "/mail/v4/messages/label", &reqData)
 	if err != nil {
 		return err
 	}
@@ -389,7 +389,7 @@ func (c *Client) UnlabelMessages(labelID string, ids []string) error {
 		LabelID string
 		IDs     []string
 	}{labelID, ids}
-	req, err := c.newJSONRequest(http.MethodPut, "/messages/unlabel", &reqData)
+	req, err := c.newJSONRequest(http.MethodPut, "/mail/v4/messages/unlabel", &reqData)
 	if err != nil {
 		return err
 	}
