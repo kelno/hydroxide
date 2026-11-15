@@ -189,6 +189,9 @@ func (u *User) UpdateMessage(apiID string, update *protonmail.EventMessageUpdate
 			if err != nil {
 				return err
 			}
+			if err := mailboxUnmarkDeleted(tx, labelID, apiID); err != nil {
+				return err
+			}
 			deletedSeqNums[labelID] = seqNum
 		}
 
@@ -229,6 +232,9 @@ func (u *User) DeleteMessage(apiID string) (seqNums map[string]uint32, err error
 
 			seqNum, err := mailboxDeleteMessage(mbox, msg.ID)
 			if err != nil {
+				return err
+			}
+			if err := mailboxUnmarkDeleted(tx, labelID, msg.ID); err != nil {
 				return err
 			}
 			seqNums[labelID] = seqNum

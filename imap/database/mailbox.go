@@ -36,6 +36,20 @@ func mailboxCreateMessage(b *bolt.Bucket, apiID string) (seqNum uint32, err erro
 	return n, b.Put(serializeUID(uid), want)
 }
 
+// mailboxUnmarkDeleted drops the \Deleted mark of a message that left a
+// mailbox, so that it doesn't come back flagged if it returns there later.
+func mailboxUnmarkDeleted(tx *bolt.Tx, labelID, apiID string) error {
+	d := tx.Bucket(deletedBucket)
+	if d == nil {
+		return nil
+	}
+	b := d.Bucket([]byte(labelID))
+	if b == nil {
+		return nil
+	}
+	return b.Delete([]byte(apiID))
+}
+
 func mailboxDeleteMessage(b *bolt.Bucket, apiID string) (seqNum uint32, err error) {
 	want := []byte(apiID)
 	c := b.Cursor()

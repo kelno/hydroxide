@@ -688,10 +688,11 @@ func (mbox *mailbox) expunge(apiIDs []string) error {
 		return err
 	}
 
-	if err := mbox.db.MarkDeleted(apiIDs, false); err != nil {
-		return err
-	}
-
+	// The \Deleted marks stay until Proton's events take the messages out of
+	// the mailbox: until then the messages are still listed here, and
+	// clearing the marks would show them again as if never deleted. If Proton
+	// accepted the request but left a message in place, the next expunge
+	// tries again.
 	return mbox.Poll()
 }
 

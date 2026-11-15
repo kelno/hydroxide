@@ -6,6 +6,6 @@ Upstream is https://codeberg.org/emersion/hydroxide (remote `upstream`); the Git
 
 ## Build and checks
 
-The only tests are in `imap/database`. Go may not be installed on the machine you work from; the Dockerfile's build stage (`golang:latest`) is a way to build, vet and test: `go vet ./... && go test ./... && go build ./...`, with `GOFLAGS=-buildvcs=false` when the source is mounted into a container. `go vet` already reports unkeyed struct literals in `exports/messages.go`, upstream code.
+Tests are in `imap` (the UIDPLUS extension, against a real go-imap server) and `imap/database`. Go may not be installed on the machine you work from; the Dockerfile's build stage (`golang:latest`) is a way to build, vet and test: `go vet ./... && go test ./... && go build ./...`, with `GOFLAGS=-buildvcs=false` when the source is mounted into a container. `go vet` already reports unkeyed struct literals in `exports/messages.go`, upstream code.
 
 The fork's differences from upstream are listed at the top of `README.md`; a change that adds or ends one updates that list.

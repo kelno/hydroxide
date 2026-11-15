@@ -154,3 +154,29 @@ func TestMailboxDeletedMarks(t *testing.T) {
 		t.Errorf("Deleted() = %v, want [c]", got)
 	}
 }
+
+// A message that leaves the mailbox through Proton's events loses its
+// \Deleted mark there, so it isn't flagged if it comes back.
+func TestMailboxDeletedMarkDroppedWhenMessageLeaves(t *testing.T) {
+	u := openTestUser(t, filepath.Join(t.TempDir(), "user.db"))
+	defer u.Close()
+
+	mbox, err := u.Mailbox(protonmail.LabelInbox)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := &protonmail.Message{ID: "a", LabelIDs: []string{protonmail.LabelInbox}}
+	if _, err := u.CreateMessage(msg); err != nil {
+		t.Fatal(err)
+	}
+	if err := mbox.MarkDeleted([]string{"a"}, true); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := u.DeleteMessage("a"); err != nil {
+		t.Fatal(err)
+	}
+	if deleted, err := mbox.IsDeleted("a"); err != nil || deleted {
+		t.Errorf("IsDeleted(a) = %v, %v after the message left", deleted, err)
+	}
+}
