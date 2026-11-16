@@ -56,6 +56,83 @@ func bccFromRest(rcpt []string, ignoreMails []*mail.Address) []*mail.Address {
 	return final
 }
 
+// maxParentLookups caps how many of a reply's Message-IDs are looked up.
+const maxParentLookups = 10
+
+// replyToIDs returns the Message-IDs a message replies to, most likely parent
+// first: In-Reply-To, then References from the newest.
+func replyToIDs(h mail.Header) []string {
+	var ids []string
+	seen := make(map[string]bool)
+	add := func(id string) {
+		if id != "" && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+
+	inReplyTo, err := h.MsgIDList("In-Reply-To")
+	if err != nil {
+		log.Printf("cannot parse In-Reply-To: %v", err)
+	}
+	for _, id := range inReplyTo {
+		add(id)
+	}
+
+	refs, err := h.MsgIDList("References")
+	if err != nil {
+		log.Printf("cannot parse References: %v", err)
+	}
+	for i := len(refs) - 1; i >= 0; i-- {
+		add(refs[i])
+	}
+
+	if len(ids) > maxParentLookups {
+		ids = ids[:maxParentLookups]
+	}
+	return ids
+}
+
+// findParent returns the API ID of the message a reply answers, or "" for a
+// message that isn't a reply or whose parent Proton doesn't have. Proton
+// builds a sent message's In-Reply-To and References from its parent: it
+// doesn't keep the ones in the client's copy, so without a parent the reply
+// leaves without them.
+func findParent(c *protonmail.Client, h mail.Header) string {
+	ids := replyToIDs(h)
+	if len(ids) == 0 {
+		return ""
+	}
+
+	for _, id := range ids {
+		total, msgs, err := c.ListMessages(&protonmail.MessageFilter{
+			ExternalID: id,
+			Limit:      10,
+		})
+		if err != nil {
+			log.Printf("cannot look up message <%s>: %v", id, err)
+			continue
+		}
+		for _, m := range msgs {
+			// Check the ID, so that a filter Proton ignored can't make
+			// this a reply to some other message.
+			if strings.Trim(m.ExternalID, "<>") == id {
+				log.Printf("sending as a reply to <%s> (message %s)", id, m.ID)
+				return m.ID
+			}
+		}
+		// Listings that leave ExternalID out: trust a single match, as
+		// hydroxide used to.
+		if total == 1 && len(msgs) == 1 && msgs[0].ExternalID == "" {
+			log.Printf("sending as a reply to <%s> (message %s, the only match)", id, msgs[0].ID)
+			return msgs[0].ID
+		}
+	}
+
+	log.Printf("cannot find the message this one replies to (%s): sending it without In-Reply-To and References", strings.Join(ids, ", "))
+	return ""
+}
+
 func SendMail(c *protonmail.Client, u *protonmail.User, privateKeys openpgp.EntityList, addrs []*protonmail.Address, rcpt []string, r io.Reader) error {
 	// Parse the incoming MIME message header
 	mr, err := mail.CreateReader(r)
@@ -143,24 +220,7 @@ func SendMail(c *protonmail.Client, u *protonmail.User, privateKeys openpgp.Enti
 		return err
 	}
 
-	parentID := ""
-	inReplyToList, _ := mr.Header.AddressList("In-Reply-To")
-	if len(inReplyToList) == 1 {
-		inReplyTo := inReplyToList[0].Address
-
-		filter := protonmail.MessageFilter{
-			Limit:      1,
-			ExternalID: inReplyTo,
-			AddressID:  fromAddr.ID,
-		}
-		total, msgs, err := c.ListMessages(&filter)
-		if err != nil {
-			return err
-		}
-		if total == 1 {
-			parentID = msgs[0].ID
-		}
-	}
+	parentID := findParent(c, mr.Header)
 
 	msg, err = c.CreateDraftMessage(msg, parentID)
 	if err != nil {
