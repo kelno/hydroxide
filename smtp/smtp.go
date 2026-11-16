@@ -105,26 +105,13 @@ func findParent(c *protonmail.Client, h mail.Header) string {
 	}
 
 	for _, id := range ids {
-		total, msgs, err := c.ListMessages(&protonmail.MessageFilter{
-			ExternalID: id,
-			Limit:      10,
-		})
+		msgs, err := c.FindMessagesByExternalID(id)
 		if err != nil {
 			log.Printf("cannot look up message <%s>: %v", id, err)
 			continue
 		}
-		for _, m := range msgs {
-			// Check the ID, so that a filter Proton ignored can't make
-			// this a reply to some other message.
-			if strings.Trim(m.ExternalID, "<>") == id {
-				log.Printf("sending as a reply to <%s> (message %s)", id, m.ID)
-				return m.ID
-			}
-		}
-		// Listings that leave ExternalID out: trust a single match, as
-		// hydroxide used to.
-		if total == 1 && len(msgs) == 1 && msgs[0].ExternalID == "" {
-			log.Printf("sending as a reply to <%s> (message %s, the only match)", id, msgs[0].ID)
+		if len(msgs) > 0 {
+			log.Printf("sending as a reply to <%s> (message %s)", id, msgs[0].ID)
 			return msgs[0].ID
 		}
 	}

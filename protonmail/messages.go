@@ -295,8 +295,61 @@ func (c *Client) countMessages(path string) ([]*MessageCount, error) {
 	return respData.Counts, nil
 }
 
+// FindMessagesByExternalID returns the messages whose Message-ID (ExternalID)
+// is id, looked up with Proton's current address and, when that finds none,
+// with the older one. Only messages carrying that ExternalID are returned,
+// so that a filter an address ignores can't bring in other messages; except
+// that when the older address answers with exactly one message and leaves its
+// ExternalID out, that message is returned, as hydroxide used to trust it.
+func (c *Client) FindMessagesByExternalID(id string) ([]*Message, error) {
+	v := url.Values{}
+	v.Set("ExternalID", id)
+	v.Set("Limit", "10")
+
+	matching := func(msgs []*Message) []*Message {
+		var l []*Message
+		for _, m := range msgs {
+			if m != nil && strings.Trim(m.ExternalID, "<>") == id {
+				l = append(l, m)
+			}
+		}
+		return l
+	}
+
+	_, msgs, err := c.listMessages("/mail/v4/messages?" + v.Encode())
+	if err != nil {
+		log.Printf("cannot look up <%s> with the /mail/v4 address, using the older one: %v", id, err)
+	} else if l := matching(msgs); len(l) > 0 {
+		return l, nil
+	}
+
+	total, msgs, err := c.listMessages("/messages?" + v.Encode())
+	if err != nil {
+		return nil, err
+	}
+	if l := matching(msgs); len(l) > 0 {
+		return l, nil
+	}
+	if total == 1 && len(msgs) == 1 && msgs[0].ExternalID == "" {
+		return msgs, nil
+	}
+	return nil, nil
+}
+
 func (c *Client) GetMessage(id string) (*Message, error) {
-	req, err := c.newRequest(http.MethodGet, "/messages/"+id, nil)
+	msg, err := c.getMessage("/mail/v4/messages/" + id)
+	if err == nil && (msg == nil || msg.ID != id) {
+		err = errors.New("the answer holds no such message")
+	}
+	if err == nil {
+		return msg, nil
+	}
+	log.Printf("cannot get message %s with the /mail/v4 address, using the older one: %v", id, err)
+	return c.getMessage("/messages/" + id)
+}
+
+func (c *Client) getMessage(path string) (*Message, error) {
+	req, err := c.newRequest(http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
 	}
