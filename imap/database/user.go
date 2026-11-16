@@ -107,6 +107,23 @@ func (u *User) Message(apiID string) (*protonmail.Message, error) {
 	return msg, err
 }
 
+// SetReplyTos records the Reply-To addresses of a message in the local
+// database; an empty list records that it has none.
+func (u *User) SetReplyTos(apiID string, replyTos []*protonmail.MessageAddress) error {
+	return u.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(messagesBucket)
+		if b == nil {
+			return ErrNotFound
+		}
+		msg, err := userMessage(b, apiID)
+		if err != nil {
+			return err
+		}
+		msg.ReplyTos = replyTos
+		return userCreateMessage(b, msg)
+	})
+}
+
 func (u *User) ResetMessages() error {
 	return u.db.Update(func(tx *bolt.Tx) error {
 		return tx.DeleteBucket(messagesBucket)

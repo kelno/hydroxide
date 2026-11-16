@@ -208,6 +208,41 @@ func (mbox *mailbox) fetchFlags(msg *protonmail.Message) []string {
 	return flags
 }
 
+// needsHeader reports whether a FETCH asks for something built from the
+// message's header: its envelope or a body section.
+func needsHeader(items []imap.FetchItem) bool {
+	for _, item := range items {
+		switch item {
+		case imap.FetchFlags, imap.FetchUid, imap.FetchInternalDate, imap.FetchRFC822Size, imap.FetchBody, imap.FetchBodyStructure:
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+// fillReplyTos gets a message's Reply-To addresses, which the message
+// summaries in Proton's listings and events leave out, from the full message,
+// and keeps them in the local database. Without them, a reply goes to the
+// sender rather than to the address the sender asked for: Firefox Relay, for
+// one, takes replies at the Reply-To address it sets. An empty list records a
+// message without Reply-To, so that it isn't asked for again.
+func (mbox *mailbox) fillReplyTos(msg *protonmail.Message) {
+	full, err := mbox.u.c.GetMessage(msg.ID)
+	if err != nil {
+		log.Printf("cannot get the Reply-To of message %s: %v", msg.ID, err)
+		return
+	}
+	replyTos := full.ReplyTos
+	if replyTos == nil {
+		replyTos = []*protonmail.MessageAddress{}
+	}
+	msg.ReplyTos = replyTos
+	if err := mbox.u.db.SetReplyTos(msg.ID, replyTos); err != nil {
+		log.Printf("cannot save the Reply-To of message %s: %v", msg.ID, err)
+	}
+}
+
 func (mbox *mailbox) fetchMessage(isUid bool, id uint32, items []imap.FetchItem) (*imap.Message, error) {
 	var apiID string
 	var err error
@@ -228,6 +263,10 @@ func (mbox *mailbox) fetchMessage(isUid bool, id uint32, items []imap.FetchItem)
 	msg, err := mbox.u.db.Message(apiID)
 	if err != nil {
 		return nil, err
+	}
+
+	if msg.ReplyTos == nil && needsHeader(items) {
+		mbox.fillReplyTos(msg)
 	}
 
 	fetched := imap.NewMessage(seqNum, items)

@@ -180,3 +180,34 @@ func TestMailboxDeletedMarkDroppedWhenMessageLeaves(t *testing.T) {
 		t.Errorf("IsDeleted(a) = %v, %v after the message left", deleted, err)
 	}
 }
+
+// A message's Reply-To addresses are kept, and an empty list stays empty
+// rather than unknown, so that it isn't fetched again.
+func TestSetReplyTos(t *testing.T) {
+	u := openTestUser(t, filepath.Join(t.TempDir(), "user.db"))
+	defer u.Close()
+
+	for _, id := range []string{"a", "b"} {
+		if _, err := u.CreateMessage(&protonmail.Message{ID: id, LabelIDs: []string{protonmail.LabelInbox}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if msg, _ := u.Message("a"); msg.ReplyTos != nil {
+		t.Fatalf("ReplyTos of a new message = %v, want unknown (nil)", msg.ReplyTos)
+	}
+
+	relay := []*protonmail.MessageAddress{{Address: "replies@relay.example"}}
+	if err := u.SetReplyTos("a", relay); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.SetReplyTos("b", []*protonmail.MessageAddress{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if msg, _ := u.Message("a"); len(msg.ReplyTos) != 1 || msg.ReplyTos[0].Address != "replies@relay.example" {
+		t.Errorf("ReplyTos of a = %v", msg.ReplyTos)
+	}
+	if msg, _ := u.Message("b"); msg.ReplyTos == nil || len(msg.ReplyTos) != 0 {
+		t.Errorf("ReplyTos of b = %#v, want an empty list", msg.ReplyTos)
+	}
+}
