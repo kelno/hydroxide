@@ -484,7 +484,14 @@ func (mbox *mailbox) SearchMessages(isUID bool, c *imap.SearchCriteria) ([]uint3
 	return results, nil
 }
 
-func (mbox *mailbox) CreateMessage(flags []string, date time.Time, body imap.Literal) (err error) {
+func (mbox *mailbox) CreateMessage(flags []string, date time.Time, body imap.Literal) error {
+	_, err := mbox.createMessage(flags, date, body)
+	return err
+}
+
+// createMessage appends a message and returns its API ID, or "" when it was
+// accepted without one being known.
+func (mbox *mailbox) createMessage(flags []string, date time.Time, body imap.Literal) (apiID string, err error) {
 	defer func() {
 		if err != nil {
 			log.Printf("Cannot append message to mailbox %q: %v", mbox.name, err)
@@ -496,57 +503,101 @@ func (mbox *mailbox) CreateMessage(flags []string, date time.Time, body imap.Lit
 	}
 
 	if mbox.label != protonmail.LabelDraft {
-		return errors.New("cannot create messages outside the Drafts and Sent mailboxes")
+		return "", errors.New("cannot create messages outside the Drafts and Sent mailboxes")
 	}
 
 	if err := mbox.init(); err != nil {
-		return err
+		return "", err
 	}
 
-	_, err = createMessage(mbox.u.c, mbox.u.u, mbox.u.privateKeys, mbox.u.addrs, body)
+	msg, err := createMessage(mbox.u.c, mbox.u.u, mbox.u.privateKeys, mbox.u.addrs, body)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	return mbox.Poll()
+	return msg.ID, mbox.Poll()
+}
+
+// CreateMessageUid appends a message like CreateMessage, and also returns
+// the mailbox's UIDVALIDITY and the UID the message got, for the APPENDUID
+// response code (UIDPLUS, RFC 4315). The UID is 0 when it isn't known.
+func (mbox *mailbox) CreateMessageUid(flags []string, date time.Time, body imap.Literal) (uidValidity, uid uint32, err error) {
+	apiID, err := mbox.createMessage(flags, date, body)
+	if err != nil {
+		return 0, 0, err
+	}
+	if apiID == "" {
+		return 0, 0, nil
+	}
+
+	_, uid, err = mbox.db.FromApiID(apiID)
+	if err == database.ErrNotFound {
+		log.Printf("message %s appended to %v isn't listed there yet: no APPENDUID", apiID, mbox.name)
+		return 0, 0, nil
+	} else if err != nil {
+		return 0, 0, err
+	}
+	uidValidity, err = mbox.db.UidValidity()
+	if err != nil {
+		return 0, 0, err
+	}
+	return uidValidity, uid, nil
 }
 
 // acknowledgeSentCopy handles a client saving a copy of a sent message in the
 // Sent mailbox. Messages sent through hydroxide's SMTP server are already in
 // Proton's Sent folder, with the Message-Id stored as their ExternalID, so the
 // copy is accepted without creating a duplicate. A message that Proton doesn't
-// know as sent is refused, rather than silently dropped.
-func (mbox *mailbox) acknowledgeSentCopy(body imap.Literal) error {
+// know as sent is refused, rather than silently dropped. It returns the API ID
+// of the message in Sent, or "" when the copy was accepted without knowing it.
+func (mbox *mailbox) acknowledgeSentCopy(body imap.Literal) (string, error) {
 	mr, err := mail.CreateReader(body)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer mr.Close()
 
 	msgID, err := mr.Header.MessageID()
 	if err != nil {
-		return fmt.Errorf("cannot parse Message-Id: %v", err)
+		return "", fmt.Errorf("cannot parse Message-Id: %v", err)
 	}
 	if msgID == "" {
-		return errors.New("cannot match message without Message-Id to a sent message")
+		return "", errors.New("cannot match message without Message-Id to a sent message")
 	}
 
-	total, _, err := mbox.u.c.ListMessages(&protonmail.MessageFilter{
-		Label:      protonmail.LabelSent,
-		ExternalID: msgID,
-		Limit:      1,
-	})
+	// Find the message itself, checking its Message-ID, so that its UID can be
+	// given back to the client.
+	apiID := ""
+	msgs, err := mbox.u.c.FindMessagesByExternalID(msgID)
 	if err != nil {
-		return err
+		log.Printf("cannot look up sent message <%s>: %v", msgID, err)
 	}
-	if total == 0 {
-		return fmt.Errorf("no message with Message-Id <%s> in Proton's Sent folder", msgID)
+	for _, m := range msgs {
+		if hasLabel(m, protonmail.LabelSent) {
+			apiID = m.ID
+			break
+		}
+	}
+
+	if apiID == "" {
+		// As before: accept the copy if Proton counts such a message in Sent.
+		total, _, err := mbox.u.c.ListMessages(&protonmail.MessageFilter{
+			Label:      protonmail.LabelSent,
+			ExternalID: msgID,
+			Limit:      1,
+		})
+		if err != nil {
+			return "", err
+		}
+		if total == 0 {
+			return "", fmt.Errorf("no message with Message-Id <%s> in Proton's Sent folder", msgID)
+		}
 	}
 
 	if err := mbox.init(); err != nil {
-		return err
+		return "", err
 	}
-	return mbox.Poll()
+	return apiID, mbox.Poll()
 }
 
 func (mbox *mailbox) fromSeqSet(isUID bool, seqSet *imap.SeqSet) ([]string, error) {

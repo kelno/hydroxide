@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/emersion/go-imap"
 	imapbackend "github.com/emersion/go-imap/backend"
@@ -47,6 +48,13 @@ type testMailbox struct {
 func (mbox *testMailbox) UidExpunge(seqSet *imap.SeqSet) error {
 	mbox.expunged <- seqSet.String()
 	return nil
+}
+
+func (mbox *testMailbox) CreateMessageUid(flags []string, date time.Time, body imap.Literal) (uidValidity, uid uint32, err error) {
+	if err := mbox.Mailbox.CreateMessage(flags, date, body); err != nil {
+		return 0, 0, err
+	}
+	return 7, 42, nil
 }
 
 func TestUidExpunge(t *testing.T) {
@@ -133,5 +141,12 @@ func TestUidExpunge(t *testing.T) {
 	case got := <-be.expunged:
 		t.Errorf("EXPUNGE went to UidExpunge with %q", got)
 	default:
+	}
+
+	// APPEND answers with the new message's UID (APPENDUID): Thunderbird
+	// reads it without checking that it came.
+	lines := cmd("a8", "APPEND INBOX {17+}\r\nSubject: hi\r\n\r\nhi")
+	if last := lines[len(lines)-1]; last != "a8 OK [APPENDUID 7 42] APPEND completed" {
+		t.Errorf("APPEND answered %q, want APPENDUID 7 42", lines)
 	}
 }
