@@ -2,6 +2,7 @@ package imap
 
 import (
 	"bufio"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -17,6 +18,13 @@ import (
 type testBackend struct {
 	imapbackend.Backend
 	expunged chan string
+	appended *appendResult
+}
+
+// appendResult is what testMailbox.CreateMessageUid returns.
+type appendResult struct {
+	uidValidity, uid uint32
+	err              error
 }
 
 func (be *testBackend) Login(info *imap.ConnInfo, username, password string) (imapbackend.User, error) {
@@ -24,12 +32,13 @@ func (be *testBackend) Login(info *imap.ConnInfo, username, password string) (im
 	if err != nil {
 		return nil, err
 	}
-	return &testUser{u, be.expunged}, nil
+	return &testUser{u, be.expunged, be.appended}, nil
 }
 
 type testUser struct {
 	imapbackend.User
 	expunged chan string
+	appended *appendResult
 }
 
 func (u *testUser) GetMailbox(name string) (imapbackend.Mailbox, error) {
@@ -37,12 +46,13 @@ func (u *testUser) GetMailbox(name string) (imapbackend.Mailbox, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &testMailbox{mbox, u.expunged}, nil
+	return &testMailbox{mbox, u.expunged, u.appended}, nil
 }
 
 type testMailbox struct {
 	imapbackend.Mailbox
 	expunged chan string
+	appended *appendResult
 }
 
 func (mbox *testMailbox) UidExpunge(seqSet *imap.SeqSet) error {
@@ -54,11 +64,12 @@ func (mbox *testMailbox) CreateMessageUid(flags []string, date time.Time, body i
 	if err := mbox.Mailbox.CreateMessage(flags, date, body); err != nil {
 		return 0, 0, err
 	}
-	return 7, 42, nil
+	r := mbox.appended
+	return r.uidValidity, r.uid, r.err
 }
 
 func TestUidExpunge(t *testing.T) {
-	be := &testBackend{memory.New(), make(chan string, 1)}
+	be := &testBackend{memory.New(), make(chan string, 1), &appendResult{}}
 	s := imapserver.New(be)
 	s.AllowInsecureAuth = true
 	s.Enable(NewUidPlusExtension())
@@ -143,10 +154,27 @@ func TestUidExpunge(t *testing.T) {
 	default:
 	}
 
-	// APPEND answers with the new message's UID (APPENDUID): Thunderbird
-	// reads it without checking that it came.
-	lines := cmd("a8", "APPEND INBOX {17+}\r\nSubject: hi\r\n\r\nhi")
+	// APPEND answers with the new message's UID (APPENDUID): Thunderbird up
+	// to 160 reads it without checking that it came. hydroxide's lookups of
+	// that UID in Proton aren't tested here.
+	appendMsg := "APPEND INBOX {17+}\r\nSubject: hi\r\n\r\nhi"
+	*be.appended = appendResult{uidValidity: 7, uid: 42}
+	lines := cmd("a8", appendMsg)
 	if last := lines[len(lines)-1]; last != "a8 OK [APPENDUID 7 42] APPEND completed" {
 		t.Errorf("APPEND answered %q, want APPENDUID 7 42", lines)
+	}
+
+	// An unknown UID gives a plain OK.
+	*be.appended = appendResult{}
+	lines = cmd("a9", appendMsg)
+	if last := lines[len(lines)-1]; last != "a9 OK APPEND completed" {
+		t.Errorf("APPEND with unknown UID answered %q, want a plain OK", lines)
+	}
+
+	// A failed append gives NO.
+	*be.appended = appendResult{err: errors.New("refused")}
+	lines = cmd("a10", appendMsg)
+	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "a10 NO ") {
+		t.Errorf("failed APPEND answered %q, want NO", lines)
 	}
 }

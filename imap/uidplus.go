@@ -63,10 +63,12 @@ type uidAppender interface {
 }
 
 // appendUid handles APPEND as the built-in handler does, and answers with
-// APPENDUID when the mailbox knows the new message's UID. Thunderbird, when a
-// server offers UIDPLUS, takes the saved copy's UID from it without checking
-// that one came: without it, the copy is taken for message 0, and Thunderbird
-// reports an error running filters on a sent message.
+// APPENDUID when the mailbox knows the new message's UID. Thunderbird up to
+// 160, when a server offers UIDPLUS, takes the saved copy's UID from it
+// without checking that one came: without it, the copy is taken for message 0
+// or for a stale UID from an earlier FETCH, and Thunderbird reports an error
+// running filters on a sent message, or runs them on another one. Thunderbird
+// 161 and later (bug 2083369) search for the message by Message-ID instead.
 type appendUid struct {
 	imapserver.Append
 }

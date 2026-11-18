@@ -530,7 +530,13 @@ func (mbox *mailbox) CreateMessageUid(flags []string, date time.Time, body imap.
 		return 0, 0, nil
 	}
 
+	// Proton's event for the message may not have come with the first poll.
 	_, uid, err = mbox.db.FromApiID(apiID)
+	for i := 0; err == database.ErrNotFound && i < 2; i++ {
+		time.Sleep(time.Second)
+		mbox.Poll()
+		_, uid, err = mbox.db.FromApiID(apiID)
+	}
 	if err == database.ErrNotFound {
 		log.Printf("message %s appended to %v isn't listed there yet: no APPENDUID", apiID, mbox.name)
 		return 0, 0, nil
@@ -565,8 +571,8 @@ func (mbox *mailbox) acknowledgeSentCopy(body imap.Literal) (string, error) {
 		return "", errors.New("cannot match message without Message-Id to a sent message")
 	}
 
-	// Find the message itself, checking its Message-ID, so that its UID can be
-	// given back to the client.
+	// Find the message itself, checking its Message-ID when Proton returns it,
+	// so that its UID can be given back to the client.
 	apiID := ""
 	msgs, err := mbox.u.c.FindMessagesByExternalID(msgID)
 	if err != nil {
@@ -581,7 +587,9 @@ func (mbox *mailbox) acknowledgeSentCopy(body imap.Literal) (string, error) {
 
 	if apiID == "" {
 		// As before: accept the copy if Proton counts such a message in Sent.
-		total, _, err := mbox.u.c.ListMessages(&protonmail.MessageFilter{
+		// This also finds it when more messages share its Message-ID than the
+		// lookup above returns.
+		total, msgs, err := mbox.u.c.ListMessages(&protonmail.MessageFilter{
 			Label:      protonmail.LabelSent,
 			ExternalID: msgID,
 			Limit:      1,
@@ -591,6 +599,11 @@ func (mbox *mailbox) acknowledgeSentCopy(body imap.Literal) (string, error) {
 		}
 		if total == 0 {
 			return "", fmt.Errorf("no message with Message-Id <%s> in Proton's Sent folder", msgID)
+		}
+		if len(msgs) == 1 && msgs[0] != nil && strings.Trim(msgs[0].ExternalID, "<>") == msgID {
+			apiID = msgs[0].ID
+		} else {
+			log.Printf("sent copy <%s> accepted, but its message in Sent wasn't found: no APPENDUID", msgID)
 		}
 	}
 
